@@ -1,24 +1,9 @@
-# 🏆 sports-briefing
+# Sports-briefing
 
 A personalized sports control center that runs every morning, fetches live data
 from multiple leagues, scores each event by impact, and outputs a prioritized
 daily brief — both in the terminal (Rich) and as a Markdown file committed to
 your repository.
-
-```
-══════════════════ Sports Briefing — Sunday, March 01 2026 ══════════════════
-
-┌ 🔥 Top 5 Storylines of the Day ──────────────────────────┐
-│                                                            │
-│  1. 🏀  Celtics 118 – 105 Lakers  [rivalry]               │
-│         overtime, won by 13                                │
-│         ██████████░░  NBA · 7.8                            │
-│                                                            │
-│  2. ⚽  Arsenal 2–1 Tottenham  [rivalry]                   │
-│         one-goal thriller                                  │
-│         ████████░░░░  Premier League · 6.3                 │
-└────────────────────────────────────────────────────────────┘
-```
 
 ## Leagues covered
 
