@@ -179,6 +179,6 @@ class Config:
     # ------------------------------------------------------------------
 
     @property
-    def api_football_key(self) -> Optional[str]:
-        """API-Football key loaded from environment."""
-        return os.getenv("API_FOOTBALL_KEY")
+    def football_data_key(self) -> Optional[str]:
+        """football-data.org API token loaded from environment."""
+        return os.getenv("FOOTBALL_DATA_KEY")

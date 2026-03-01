@@ -1,13 +1,12 @@
 """
-Premier League fetcher — uses the API-Football v3 REST API.
+Premier League fetcher — uses the football-data.org v4 REST API.
 
-Free tier: 100 calls / day.  We make at most 3 calls per run
-(standings + recent fixtures + upcoming fixtures) so 30+ runs/day
-are within quota.
+Free tier: 10 requests / minute, competitions limited to 12 per day.
+We make at most 3 calls per run (standings + recent + upcoming).
 
 Env vars required
 -----------------
-API_FOOTBALL_KEY   Your API-Football key (https://www.api-football.com)
+FOOTBALL_DATA_KEY   Your football-data.org API token (https://www.football-data.org)
 """
 
 from __future__ import annotations
@@ -25,33 +24,20 @@ from sports_briefing.utils.http import get_json
 
 logger = logging.getLogger(__name__)
 
-_API_BASE = "https://v3.football.api-sports.io"
-_LEAGUE_ID = 39   # Premier League
-
-
-def _current_pl_season() -> int:
-    """Return the API-Football season year for today (e.g. 2025).
-
-    The Premier League season starts in August.  From August onward the
-    season label is the current year; before August it is the previous year.
-    """
-    now = datetime.now()
-    return now.year if now.month >= 8 else now.year - 1
-
-
-_SEASON = _current_pl_season()
+_API_BASE = "https://api.football-data.org/v4"
+_COMPETITION = "PL"  # Premier League competition code
 
 
 class PremierLeagueFetcher(BaseLeagueFetcher):
-    """Fetches Premier League data from API-Football."""
+    """Fetches Premier League data from football-data.org."""
 
     league_name = "premier_league"
 
     def __init__(self, config: Config, cache: Cache) -> None:
         super().__init__(config, cache)
-        self._key = config.api_football_key
+        self._key = config.football_data_key
         self._headers: dict[str, str] = (
-            {"x-apisports-key": self._key} if self._key else {}
+            {"X-Auth-Token": self._key} if self._key else {}
         )
 
     # ------------------------------------------------------------------
@@ -59,17 +45,12 @@ class PremierLeagueFetcher(BaseLeagueFetcher):
     # ------------------------------------------------------------------
 
     def fetch(self) -> LeagueData:
-        """Fetch standings, recent results, and upcoming PL fixtures.
-
-        Returns:
-            Populated ``LeagueData``.  Sets ``fetch_error`` if the API key
-            is missing or the API is unreachable.
-        """
+        """Fetch standings, recent results, and upcoming PL fixtures."""
         data = LeagueData(league="premier_league")
 
         if not self._key:
-            data.fetch_error = "API_FOOTBALL_KEY not set in .env"
-            logger.warning("Premier League: API_FOOTBALL_KEY not configured")
+            data.fetch_error = "FOOTBALL_DATA_KEY not set in .env"
+            logger.warning("Premier League: FOOTBALL_DATA_KEY not configured")
             return data
 
         try:
@@ -81,7 +62,7 @@ class PremierLeagueFetcher(BaseLeagueFetcher):
             yesterday = (datetime.now() - timedelta(hours=48)).strftime("%Y-%m-%d")
             today = datetime.now().strftime("%Y-%m-%d")
             data.recent_results = self._fetch_fixtures(
-                from_date=yesterday, to_date=today, status="FT", standing_map=standing_map
+                from_date=yesterday, to_date=today, standing_map=standing_map
             )
 
             # Upcoming fixtures in the next 48 h
@@ -108,9 +89,8 @@ class PremierLeagueFetcher(BaseLeagueFetcher):
             return [TeamStanding(**entry) for entry in cached]
 
         raw = get_json(
-            f"{_API_BASE}/standings",
+            f"{_API_BASE}/competitions/{_COMPETITION}/standings",
             headers=self._headers,
-            params={"league": _LEAGUE_ID, "season": _SEASON},
             timeout=20,
         )
         if not raw:
@@ -118,24 +98,28 @@ class PremierLeagueFetcher(BaseLeagueFetcher):
 
         standings: list[TeamStanding] = []
         try:
-            table: list[dict] = raw["response"][0]["league"]["standings"][0]
+            # Find the TOTAL standings table (as opposed to HOME / AWAY)
+            table: list[dict] = []
+            for group in raw.get("standings", []):
+                if group.get("type") == "TOTAL":
+                    table = group["table"]
+                    break
+
             for entry in table:
-                all_stats: dict = entry.get("all", {})
-                goals: dict = all_stats.get("goals", {})
                 standings.append(
                     TeamStanding(
                         team_name=entry["team"]["name"],
-                        position=int(entry["rank"]),
+                        position=int(entry["position"]),
                         points=int(entry["points"]),
-                        wins=int(all_stats.get("win", 0)),
-                        losses=int(all_stats.get("lose", 0)),
+                        wins=int(entry.get("won", 0)),
+                        losses=int(entry.get("lost", 0)),
                         league="premier_league",
                         extra={
-                            "goals_for": int(goals.get("for", 0)),
-                            "goals_against": int(goals.get("against", 0)),
-                            "goal_diff": int(entry.get("goalsDiff", 0)),
-                            "form": str(entry.get("form", "")),
-                            "played": int(all_stats.get("played", 0)),
+                            "goals_for": int(entry.get("goalsFor", 0)),
+                            "goals_against": int(entry.get("goalsAgainst", 0)),
+                            "goal_diff": int(entry.get("goalDifference", 0)),
+                            "form": str(entry.get("form", "") or ""),
+                            "played": int(entry.get("playedGames", 0)),
                         },
                     )
                 )
@@ -154,11 +138,10 @@ class PremierLeagueFetcher(BaseLeagueFetcher):
         self,
         from_date: str,
         to_date: str,
-        status: str,
         standing_map: dict[str, int],
     ) -> list[GameEvent]:
         """Fetch finished fixtures between *from_date* and *to_date*."""
-        cache_key = f"pl_fixtures_{from_date}_{to_date}_{status}"
+        cache_key = f"pl_fixtures_{from_date}_{to_date}"
         cached = self.cache.get(cache_key)
 
         raw: Optional[Any] = None
@@ -166,14 +149,12 @@ class PremierLeagueFetcher(BaseLeagueFetcher):
             raw = cached
         else:
             raw = get_json(
-                f"{_API_BASE}/fixtures",
+                f"{_API_BASE}/competitions/{_COMPETITION}/matches",
                 headers=self._headers,
                 params={
-                    "league": _LEAGUE_ID,
-                    "season": _SEASON,
-                    "from": from_date,
-                    "to": to_date,
-                    "status": status,
+                    "status": "FINISHED",
+                    "dateFrom": from_date,
+                    "dateTo": to_date,
                 },
                 timeout=20,
             )
@@ -184,8 +165,8 @@ class PremierLeagueFetcher(BaseLeagueFetcher):
             return []
 
         events: list[GameEvent] = []
-        for fixture in raw.get("response", []):
-            event = self._parse_fixture(fixture, standing_map)
+        for match in raw.get("matches", []):
+            event = self._parse_fixture(match, standing_map)
             if event:
                 events.append(event)
 
@@ -210,14 +191,12 @@ class PremierLeagueFetcher(BaseLeagueFetcher):
             raw = cached
         else:
             raw = get_json(
-                f"{_API_BASE}/fixtures",
+                f"{_API_BASE}/competitions/{_COMPETITION}/matches",
                 headers=self._headers,
                 params={
-                    "league": _LEAGUE_ID,
-                    "season": _SEASON,
-                    "from": from_date,
-                    "to": to_date,
-                    "status": "NS",
+                    "status": "SCHEDULED",
+                    "dateFrom": from_date,
+                    "dateTo": to_date,
                 },
                 timeout=20,
             )
@@ -228,10 +207,10 @@ class PremierLeagueFetcher(BaseLeagueFetcher):
             return []
 
         upcoming: list[UpcomingMatch] = []
-        for fixture in raw.get("response", []):
-            match = self._parse_upcoming_fixture(fixture, standing_map)
-            if match:
-                upcoming.append(match)
+        for match in raw.get("matches", []):
+            um = self._parse_upcoming_fixture(match, standing_map)
+            if um:
+                upcoming.append(um)
 
         return upcoming
 
@@ -240,18 +219,19 @@ class PremierLeagueFetcher(BaseLeagueFetcher):
     # ------------------------------------------------------------------
 
     def _parse_fixture(
-        self, fixture: dict, standing_map: dict[str, int]
+        self, match: dict, standing_map: dict[str, int]
     ) -> Optional[GameEvent]:
-        """Build a ``GameEvent`` from a single API-Football fixture dict."""
+        """Build a ``GameEvent`` from a single football-data.org match dict."""
         try:
-            teams: dict = fixture["teams"]
-            goals: dict = fixture["goals"]
-            home_name: str = teams["home"]["name"]
-            away_name: str = teams["away"]["name"]
-            home_goals: int = int(goals.get("home") or 0)
-            away_goals: int = int(goals.get("away") or 0)
+            home_name: str = match["homeTeam"]["name"]
+            away_name: str = match["awayTeam"]["name"]
 
-            date_str: str = fixture["fixture"]["date"]
+            score: dict = match["score"]
+            full_time: dict = score.get("fullTime", {})
+            home_goals: int = int(full_time.get("home") or 0)
+            away_goals: int = int(full_time.get("away") or 0)
+
+            date_str: str = match["utcDate"]
             date = datetime.fromisoformat(date_str.replace("Z", "+00:00")).replace(
                 tzinfo=None
             )
@@ -263,19 +243,17 @@ class PremierLeagueFetcher(BaseLeagueFetcher):
             elif margin == 1:
                 context_parts.append("one-goal thriller")
 
-            # Detect extra time / penalties from fixture status
-            fixture_status: str = fixture.get("fixture", {}).get("status", {}).get(
-                "short", ""
-            )
-            if fixture_status == "AET":
+            duration: str = score.get("duration", "REGULAR")
+            if duration == "EXTRA_TIME":
                 context_parts.append("extra time")
-            elif fixture_status == "PEN":
+            elif duration == "PENALTY_SHOOTOUT":
                 context_parts.append("penalties")
 
+            winner_code: Optional[str] = score.get("winner")
             winner: Optional[str] = None
-            if home_goals > away_goals:
+            if winner_code == "HOME_TEAM":
                 winner = home_name
-            elif away_goals > home_goals:
+            elif winner_code == "AWAY_TEAM":
                 winner = away_name
 
             return GameEvent(
@@ -308,15 +286,14 @@ class PremierLeagueFetcher(BaseLeagueFetcher):
             return None
 
     def _parse_upcoming_fixture(
-        self, fixture: dict, standing_map: dict[str, int]
+        self, match: dict, standing_map: dict[str, int]
     ) -> Optional[UpcomingMatch]:
-        """Build an ``UpcomingMatch`` from a single API-Football fixture dict."""
+        """Build an ``UpcomingMatch`` from a single football-data.org match dict."""
         try:
-            teams: dict = fixture["teams"]
-            home_name: str = teams["home"]["name"]
-            away_name: str = teams["away"]["name"]
+            home_name: str = match["homeTeam"]["name"]
+            away_name: str = match["awayTeam"]["name"]
 
-            date_str: str = fixture["fixture"]["date"]
+            date_str: str = match["utcDate"]
             kickoff = datetime.fromisoformat(date_str.replace("Z", "+00:00")).replace(
                 tzinfo=None
             )
