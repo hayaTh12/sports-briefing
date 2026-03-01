@@ -1,0 +1,87 @@
+# ============================================================
+#  sports-briefing configuration
+#  All settings here override built-in defaults.
+#  API keys must go in .env — never in this file.
+# ============================================================
+
+output:
+  # Where daily Markdown briefs are saved.
+  briefs_dir: ./briefs
+
+# ────────────────────────────────────────────────
+#  Leagues
+# ────────────────────────────────────────────────
+leagues:
+  nba:
+    enabled: true
+    # Teams you care about — partial names work (e.g. "Lakers", "Celtics").
+    favorite_teams:
+      # - Lakers
+      # - Celtics
+    favorite_players:
+      # - LeBron James
+      # - Stephen Curry
+
+  premier_league:
+    enabled: true
+    favorite_teams:
+      # - Arsenal
+      # - Liverpool
+    favorite_players:
+      # - Erling Haaland
+      # - Mohamed Salah
+
+  formula1:
+    enabled: true
+    # favourite_drivers is treated as favorite_teams for F1
+    favorite_drivers:
+      # - Max Verstappen
+      # - Lewis Hamilton
+    favorite_teams:
+      # - Red Bull
+      # - Mercedes
+
+  nhl:
+    enabled: true
+    favorite_teams:
+      # - Maple Leafs
+      # - Rangers
+    favorite_players:
+      # - Connor McDavid
+      # - Nathan MacKinnon
+
+# ────────────────────────────────────────────────
+#  Scoring engine
+# ────────────────────────────────────────────────
+scoring:
+  # Factor weights — increase a weight to make that factor count more.
+  weights:
+    upset: 2.0           # Lower-ranked team beats higher-ranked
+    rivalry: 1.5         # Known rivalry match
+    close_game: 1.2      # Tight scoreline (≤5 pts NBA / ≤1 goal soccer/hockey)
+    standings_change: 1.5 # (future: standings delta)
+    favorite_team: 3.0   # Your favourite team is involved
+    high_stakes: 2.0     # Both teams in top 6 (or top 3 gets full weight)
+    recency: 0.5         # Fresher results score slightly higher
+
+  # Events at or below this score go in the "You Can Skip" section.
+  skip_threshold: 2.5
+
+  # User-defined rivalry pairs (supplement the built-in registry).
+  # Format: list of [TeamA, TeamB] pairs. Partial names are fine.
+  custom_rivalries:
+    nba:
+      # - [Lakers, Warriors]
+    premier_league:
+      # - [Arsenal, Chelsea]
+    nhl:
+      # - [Maple Leafs, Bruins]
+
+# ────────────────────────────────────────────────
+#  Cache
+# ────────────────────────────────────────────────
+cache:
+  # API responses are cached here to avoid redundant network calls.
+  cache_dir: ./cache
+  # How many hours before a cached response is considered stale.
+  ttl_hours: 6

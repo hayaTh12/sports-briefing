@@ -1,0 +1,86 @@
+name: Daily Sports Brief
+
+on:
+  # Run every morning at 8:00 AM UTC
+  schedule:
+    - cron: "0 8 * * *"
+
+  # Allow manual trigger from the GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      league:
+        description: "Single league to fetch (leave blank for all)"
+        required: false
+        default: ""
+
+jobs:
+  generate-brief:
+    name: Generate & Commit Daily Brief
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write   # needed to push the generated Markdown file
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Python setup ──────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ── 3. Pip cache ─────────────────────────────────────────────────
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # ── 4. Sports-data cache (persist across runs) ───────────────────
+      - name: Restore sports-data cache
+        uses: actions/cache@v4
+        with:
+          path: cache/
+          key: sports-data-${{ github.run_id }}
+          restore-keys: |
+            sports-data-
+
+      # ── 5. Install dependencies ──────────────────────────────────────
+      - name: Install dependencies
+        run: pip install --quiet -r requirements.txt
+
+      # ── 6. Install package (editable) ────────────────────────────────
+      - name: Install sports-briefing
+        run: pip install --quiet -e .
+
+      # ── 7. Generate brief ────────────────────────────────────────────
+      - name: Generate daily brief
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+        run: |
+          if [ -n "${{ github.event.inputs.league }}" ]; then
+            sports-briefing run --league "${{ github.event.inputs.league }}"
+          else
+            sports-briefing run
+          fi
+
+      # ── 8. Commit generated Markdown to repository ───────────────────
+      - name: Commit brief to repository
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add briefs/
+          # Only commit if there are staged changes
+          if git diff --staged --quiet; then
+            echo "No new brief to commit (already up to date)."
+          else
+            git commit -m "📊 Daily Sports Brief — $(date -u '+%Y-%m-%d')"
+            git push
+          fi
