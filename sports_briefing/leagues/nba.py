@@ -174,9 +174,9 @@ class NBAFetcher(BaseLeagueFetcher):
             Raw dict with "games" and "scores" lists, or ``None``.
         """
         try:
-            from nba_api.stats.endpoints import scoreboard  # noqa: PLC0415
+            from nba_api.stats.endpoints import scoreboardv2  # noqa: PLC0415
 
-            sb = scoreboard.ScoreboardV2(game_date=date_str, timeout=60)
+            sb = scoreboardv2.ScoreboardV2(game_date=date_str, timeout=60)
             dfs = sb.get_data_frames()
             return {
                 "games": dfs[0].to_dict(orient="records"),
